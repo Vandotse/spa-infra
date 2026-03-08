@@ -8,9 +8,9 @@ on:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPO: ${{ secrets.ECR_REPO }}
-  EC2_SECURITY_GROUP: ${{ secrets.SECURITY_GROUP_ID }}
-  EC2_SUBNET: ${{ secrets.SUBNET_ID }}
-  EC2_KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
+  EC2_SECURITY_GROUP: ${{ secrets.TEMP_SG_ID }}
+  EC2_SUBNET: ${{ secrets.TEMP_SUBNET_ID }}
+  EC2_KEY_NAME: ${{ secrets.TEMP_KEY_NAME }}
   DB_HOST: ${{ secrets.DB_HOST }}
   DB_PORT: ${{ secrets.DB_PORT }}
   DB_USER: ${{ secrets.DB_USER }}
