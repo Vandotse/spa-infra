@@ -3,6 +3,15 @@ set -e
 
 echo "Running containers on EC2..."
 
+echo "Remote Docker check..."
+ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "
+  uname -a
+  which docker || true
+  sudo systemctl status docker --no-pager || true
+  sudo tail -100 /var/log/cloud-init-output.log || true
+  sudo tail -100 /var/log/userdata.log || true
+"
+
 docker save spa-backend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
 docker save spa-frontend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
 
@@ -16,8 +25,6 @@ DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_NAME=$DB_NAME
 ENV
-
-cat .env
 
 sudo docker compose -f docker-compose.yml --env-file .env up -d
 
