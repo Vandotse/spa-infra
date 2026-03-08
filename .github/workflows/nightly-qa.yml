@@ -6,19 +6,70 @@ on:
     - cron: '17 11 * * *'
 
 jobs:
-  test-runner:
+  deploy:
     runs-on: [self-hosted, Linux, X64]
 
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: 169078094851
+      BACKEND_ECR_REPO: spa-backend
+      FRONTEND_ECR_REPO: spa-frontend
+      IMAGE_TAG: ${{ github.sha }}
+
     steps:
-      - name: Show runner info
-        run: |
-          uname -a
-          whoami
+      - name: Checkout infra repo
+        uses: actions/checkout@v5
 
-      - name: Test AWS identity
-        run: |
-          aws sts get-caller-identity
+      - name: Checkout source repo
+        uses: actions/checkout@v5
+        with:
+          repository: YOUR_USERNAME/docker-mysql-nodejs-reactjs-app
+          path: source
 
-      - name: Test Docker
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Login to ECR
         run: |
-          docker --version
+          aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin \
+          $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build backend image
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$IMAGE_TAG ./source/backend
+
+      - name: Build frontend image
+        run: |
+          docker build -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$IMAGE_TAG ./source/frontend
+
+      - name: Push backend image
+        run: |
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$IMAGE_TAG
+
+      - name: Push frontend image
+        run: |
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$IMAGE_TAG
+
+      - name: Deploy containers on QA EC2
+        run: |
+          docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$IMAGE_TAG
+          docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$IMAGE_TAG
+
+          docker rm -f api || true
+          docker rm -f frontend || true
+
+          docker run -d \
+            --name api \
+            --restart unless-stopped \
+            --env-file /opt/spa/backend.env \
+            -p 3000:3000 \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$IMAGE_TAG
+
+          docker run -d \
+            --name frontend \
+            --restart unless-stopped \
+            -p 3001:3000 \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$IMAGE_TAG
+
+          sudo systemctl reload nginx
