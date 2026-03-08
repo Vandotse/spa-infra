@@ -2,9 +2,9 @@
 set -euo pipefail
 
 : "${AMI_ID:?AMI_ID is empty}"
-: "${EC2_SECURITY_GROUP:?SECURITY_GROUP_ID is empty}"
-: "${EC2_SUBNET:?SUBNET_ID is empty}"
-: "${EC2_KEY_NAME:?EC2_KEY_NAME is empty}"
+: "${EC2_SECURITY_GROUP:?TEMP_SG_ID is empty}"
+: "${EC2_SUBNET:?TEMP_SUBNET_ID is empty}"
+: "${EC2_KEY_NAME:?TEMP_KEY_NAME is empty}"
 : "${CONTROL_EC2_IP:?CONTROL_EC2_IP is empty}"
 : "${CONTROL_EC2_USER:?CONTROL_EC2_USER is empty}"
 : "${AWS_REGION:?AWS_REGION is empty}"
