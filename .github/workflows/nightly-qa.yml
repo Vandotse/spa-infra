@@ -84,6 +84,23 @@ jobs:
           echo "EC2 never became reachable"
           exit 1
 
+      - name: Wait for Docker on EC2
+        run: |
+          echo "Waiting for Docker..."
+          for i in {1..60}; do
+            if ssh ec2-user@$EC2_IP "command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1"; then
+              echo "Docker is ready"
+              exit 0
+            fi
+            echo "Attempt $i/60: Docker not ready yet"
+            sleep 5
+          done
+
+          echo "Docker never became ready. Showing logs:"
+          ssh ec2-user@$EC2_IP "sudo tail -100 /var/log/cloud-init-output.log || true"
+          ssh ec2-user@$EC2_IP "sudo tail -100 /var/log/userdata.log || true"
+          exit 1
+
       - name: Run containers on EC2
         run: |
           bash scripts/run-test-containers.sh

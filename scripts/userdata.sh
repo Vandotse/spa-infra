@@ -1,12 +1,14 @@
 #!/bin/bash
 set -xe
 
-dnf update -y
-dnf install -y docker docker-compose-plugin
+exec > /var/log/userdata.log 2>&1
 
-echo "Running Docker..."
-systemctl start docker
+yum update -y
+yum install -y docker git
+
+service docker start
 systemctl enable docker
 
+usermod -aG docker ec2-user || true
+
 docker --version
-docker compose version

@@ -1,28 +1,45 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "Running containers on EC2..."
 
-docker save spa-backend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
-docker save spa-frontend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
+REMOTE_USER="ec2-user"
+REMOTE_HOST="$EC2_IP"
 
-scp -o StrictHostKeyChecking=no docker-compose.deploy.yml ec2-user@$EC2_IP:docker-compose.yml
+echo "Check Docker first..."
+ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" '
+  which docker || true
+  sudo docker --version || true
+  sudo systemctl status docker --no-pager || true
+'
 
-ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP << EOF
-cat <<ENV > .env
-DB_HOST=$DB_HOST
-DB_PORT=$DB_PORT
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
-DB_NAME=$DB_NAME
-ENV
+echo "Transfer backend image..."
+docker save spa-backend | ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "sudo docker load"
 
-cat .env
+echo "Transfer frontend image..."
+docker save spa-frontend | ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "sudo docker load"
 
-sudo docker compose -f docker-compose.yml --env-file .env up -d
+echo "Start containers..."
+ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" <<EOF
+set -e
+
+sudo docker stop verify-frontend verify-api 2>/dev/null || true
+sudo docker rm verify-frontend verify-api 2>/dev/null || true
+
+sudo docker run -d \
+  --name verify-api \
+  -p 3000:3000 \
+  -e DB_HOST="$DB_HOST" \
+  -e DB_PORT="$DB_PORT" \
+  -e DB_USER="$DB_USER" \
+  -e DB_PASSWORD="$DB_PASSWORD" \
+  -e DB_NAME="$DB_NAME" \
+  spa-backend
+
+sudo docker run -d \
+  --name verify-frontend \
+  -p 3001:3000 \
+  spa-frontend
 
 sudo docker ps
-sudo docker images
-sudo docker logs \$(sudo docker ps --format '{{.Names}}' | grep api | head -n1) --tail 50 || true
-sudo docker logs \$(sudo docker ps --format '{{.Names}}' | grep frontend | head -n1) --tail 50 || true
 EOF
