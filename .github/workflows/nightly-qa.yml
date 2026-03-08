@@ -118,8 +118,8 @@ jobs:
 
       - name: Deploy to QA EC2
         env:
-          QA_EC2_IP: ${{ secrets.QA_EC2_IP }}
-          QA_EC2_USER: ${{ secrets.QA_EC2_USER }}
+          QA_EC2_IP: ${{ secrets.CONTROL_EC2_IP }}
+          QA_EC2_USER: ${{ secrets.CONTROL_EC2_USER }}
           ECR_REPO: ${{ secrets.ECR_REPO }}
         run: |
           bash scripts/deploy-qa.sh
