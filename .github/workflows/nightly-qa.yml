@@ -62,9 +62,9 @@ jobs:
       - name: Launch temporary EC2
         env:
           AMI_ID: ${{ secrets.AMI_ID }}
-          EC2_SECURITY_GROUP: ${{ secrets.SECURITY_GROUP_ID }}
-          EC2_SUBNET: ${{ secrets.SUBNET_ID }}
-          EC2_KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
+          EC2_SECURITY_GROUP: ${{ secrets.TEMP_SG_ID }}
+          EC2_SUBNET: ${{ secrets.TEMP_SUBNET_ID }}
+          EC2_KEY_NAME: ${{ secrets.TEMP_KEY_NAME }}
         run: bash scripts/create-ec2.sh
 
       - name: Wait for EC2 SSH
