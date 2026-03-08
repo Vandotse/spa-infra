@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "Running smoke test against $EC2_IP..."
 
@@ -21,13 +21,21 @@ for i in $(seq 1 $MAX_ATTEMPTS); do
   sleep $SLEEP_SECONDS
 done
 
+echo "Creating database..."
 curl -f -X POST "http://$EC2_IP:3000/dbinit"
+
+echo "Creating table..."
 curl -f -X POST "http://$EC2_IP:3000/tbinit"
 
+echo "Waiting for table creation to finish..."
+sleep 5
+
+echo "Inserting test row..."
 curl -f -X POST "http://$EC2_IP:3000/user" \
   -H "Content-Type: application/json" \
   -d '{"data":"nightly-test"}'
 
+echo "Reading rows back..."
 RESPONSE=$(curl -f "http://$EC2_IP:3000/user")
 echo "$RESPONSE"
 echo "$RESPONSE" | grep "nightly-test"
