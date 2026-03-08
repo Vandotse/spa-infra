@@ -1,0 +1,22 @@
+services:
+  api:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/spa-backend:${IMAGE_TAG}
+    container_name: qa-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: ${RDS_HOST}
+      DB_PORT: ${RDS_PORT}
+      DB_USER: ${RDS_USER}
+      DB_PASSWORD: ${RDS_PASSWORD}
+      DB_NAME: ${RDS_DB}
+
+  frontend:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/spa-frontend:${IMAGE_TAG}
+    container_name: qa-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
