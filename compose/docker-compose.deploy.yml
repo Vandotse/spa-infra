@@ -1,19 +1,17 @@
 services:
   api:
-    image: spa-backend:latest
-    container_name: verify-api
+    image: spa-backend
     ports:
       - "3000:3000"
     environment:
-      DB_HOST: ${RDS_HOST}
-      DB_PORT: ${RDS_PORT}
-      DB_USER: ${RDS_USER}
-      DB_PASSWORD: ${RDS_PASSWORD}
-      DB_NAME: ${RDS_DB_NAME}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
 
   frontend:
-    image: spa-frontend:latest
-    container_name: verify-frontend
+    image: spa-frontend
     ports:
       - "3001:3000"
     depends_on:

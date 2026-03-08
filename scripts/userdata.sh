@@ -1,10 +1,12 @@
 #!/bin/bash
-set -eux
+set -xe
 
 dnf update -y
-dnf install -y docker docker-compose-plugin git
+dnf install -y docker docker-compose-plugin
 
-systemctl enable docker
+echo "Running Docker..."
 systemctl start docker
+systemctl enable docker
 
-usermod -aG docker ec2-user
+docker --version
+docker compose version

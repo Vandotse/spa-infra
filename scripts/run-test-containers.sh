@@ -1,40 +1,28 @@
 #!/bin/bash
-set -euo pipefail
-
-: "${EC2_IP:?EC2_IP is empty}"
-
-echo "Running verification containers on verifier EC2..."
-
-REMOTE_USER="ec2-user"
-REMOTE_HOST="$EC2_IP"
-REMOTE_DIR="~/spa-verify"
-
-ssh "$REMOTE_USER@$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
-
-echo "Transferring backend image..."
-docker save spa-backend:latest | ssh "$REMOTE_USER@$REMOTE_HOST" "sudo docker load"
-
-echo "Transferring frontend image..."
-docker save spa-frontend:latest | ssh "$REMOTE_USER@$REMOTE_HOST" "sudo docker load"
-
-echo "Copying verification compose file..."
-scp compose/docker-compose.verify.yml "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/docker-compose.verify.yml"
-
-echo "Creating .env on verifier EC2..."
-ssh "$REMOTE_USER@$REMOTE_HOST" <<EOF
-cat > $REMOTE_DIR/.env <<EOT
-RDS_HOST=$RDS_HOST
-RDS_PORT=$RDS_PORT
-RDS_USER=$RDS_USER
-RDS_PASSWORD=$RDS_PASSWORD
-RDS_DB_NAME=$RDS_DB_NAME
-EOT
-EOF
-
-echo "Starting verification stack..."
-ssh "$REMOTE_USER@$REMOTE_HOST" <<EOF
 set -e
-cd $REMOTE_DIR
-sudo docker compose --env-file .env -f docker-compose.verify.yml up -d
-sudo docker compose -f docker-compose.verify.yml ps
+
+echo "Running containers on EC2..."
+
+docker save spa-backend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
+docker save spa-frontend | ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker load"
+
+scp -o StrictHostKeyChecking=no docker-compose.deploy.yml ec2-user@$EC2_IP:docker-compose.yml
+
+ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP << EOF
+cat <<ENV > .env
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+DB_NAME=$DB_NAME
+ENV
+
+cat .env
+
+sudo docker compose -f docker-compose.yml --env-file .env up -d
+
+sudo docker ps
+sudo docker images
+sudo docker logs \$(sudo docker ps --format '{{.Names}}' | grep api | head -n1) --tail 50 || true
+sudo docker logs \$(sudo docker ps --format '{{.Names}}' | grep frontend | head -n1) --tail 50 || true
 EOF
