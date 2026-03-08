@@ -23,7 +23,7 @@ jobs:
       - name: Checkout source repo
         uses: actions/checkout@v5
         with:
-          repository: YOUR_USERNAME/docker-mysql-nodejs-reactjs-app
+          repository: Vandotse/docker-mysql-nodejs-reactjs-app
           path: source
 
       - name: Verify AWS identity
