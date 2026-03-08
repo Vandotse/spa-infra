@@ -1,9 +1,7 @@
 services:
   api:
-    build:
-      context: ../app/backend
-      dockerfile: Dockerfile
-    container_name: nightly-api
+    image: spa-backend:latest
+    container_name: verify-api
     ports:
       - "3000:3000"
     environment:
@@ -11,13 +9,11 @@ services:
       DB_PORT: ${RDS_PORT}
       DB_USER: ${RDS_USER}
       DB_PASSWORD: ${RDS_PASSWORD}
-      DB_NAME: ${RDS_DB}
+      DB_NAME: ${RDS_DB_NAME}
 
   frontend:
-    build:
-      context: ../app/frontend
-      dockerfile: Dockerfile
-    container_name: nightly-frontend
+    image: spa-frontend:latest
+    container_name: verify-frontend
     ports:
       - "3001:3000"
     depends_on:

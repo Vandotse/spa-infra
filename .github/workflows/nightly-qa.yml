@@ -3,24 +3,34 @@ name: Nightly QA Deployment
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *"   # 1:00 AM Pacific Standard Time = 09:00 UTC
+    - cron: "0 9 * * *" # 1:00 AM PST / 2:00 AM PDT adjust if needed
 
 permissions:
   contents: read
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   SOURCE_REPO_URL: ${{ secrets.SOURCE_REPO_URL }}
-  QA_APP_DIR: ${{ secrets.QA_APP_DIR }}
+  ECR_BACKEND_REPO: ${{ secrets.ECR_BACKEND_REPO }}
+  ECR_FRONTEND_REPO: ${{ secrets.ECR_FRONTEND_REPO }}
+  QA_EC2_IP: ${{ secrets.QA_EC2_IP }}
+  QA_EC2_USER: ${{ secrets.QA_EC2_USER }}
+  RDS_HOST: ${{ secrets.RDS_HOST }}
+  RDS_PORT: ${{ secrets.RDS_PORT }}
+  RDS_USER: ${{ secrets.RDS_USER }}
+  RDS_PASSWORD: ${{ secrets.RDS_PASSWORD }}
+  RDS_DB_NAME: ${{ secrets.RDS_DB_NAME }}
 
 jobs:
-  nightly-qa:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out infra repo
+      - name: Checkout infra repo
         uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
 
       - name: Clone source repo
         run: git clone "${SOURCE_REPO_URL}" app
@@ -33,127 +43,72 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Rebuild SSH key from secret
+      - name: Setup SSH key
         run: |
-          echo "${{ secrets.TEMP_KEY_PEM_B64 }}" | base64 -d > temp-key.pem
-          chmod 600 temp-key.pem
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          cat > ~/.ssh/config <<'EOF'
+          Host *
+            IdentityFile ~/.ssh/id_rsa
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            LogLevel ERROR
+          EOF
 
-      - name: Launch temporary verification EC2
-        id: launch
+      - name: Build Docker images
+        run: bash scripts/build-image.sh
+
+      - name: Launch temporary EC2
+        env:
+          AMI_ID: ${{ secrets.AMI_ID }}
+          EC2_SECURITY_GROUP: ${{ secrets.SECURITY_GROUP_ID }}
+          EC2_SUBNET: ${{ secrets.SUBNET_ID }}
+          EC2_KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
+        run: bash scripts/create-ec2.sh
+
+      - name: Wait for EC2 SSH
         run: |
-          INSTANCE_ID=$(aws ec2 run-instances \
-            --image-id "${{ secrets.TEMP_AMI_ID }}" \
-            --instance-type t2.micro \
-            --key-name "${{ secrets.TEMP_KEY_NAME }}" \
-            --security-group-ids "${{ secrets.TEMP_SG_ID }}" \
-            --subnet-id "${{ secrets.TEMP_SUBNET_ID }}" \
-            --user-data file://scripts/install-docker.sh \
-            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=nightly-verify-ec2}]' \
-            --query 'Instances[0].InstanceId' \
-            --output text)
-
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-
-      - name: Wait for EC2 to be ready
-        run: |
-          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
-          aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
-
-          PUBLIC_IP=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text)
-
-          echo "TEMP_PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
-
-      - name: Wait for SSH to respond
-        run: |
-          for i in {1..30}; do
-            if ssh -o StrictHostKeyChecking=no -i temp-key.pem ec2-user@"$TEMP_PUBLIC_IP" "echo SSH ready"; then
+          echo "Waiting for EC2 SSH on $EC2_IP ..."
+          for i in {1..60}; do
+            if ssh -o BatchMode=yes -o ConnectTimeout=5 ec2-user@"$EC2_IP" "echo connected" >/dev/null 2>&1; then
+              echo "SSH ready"
               exit 0
             fi
-            sleep 10
+            echo "Attempt $i/60: SSH not ready yet"
+            sleep 5
           done
-          echo "SSH never became ready"
+          echo "EC2 never became reachable by SSH"
           exit 1
 
-      - name: Copy verify files to temporary EC2
+      - name: Wait for Docker on EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i temp-key.pem ec2-user@"$TEMP_PUBLIC_IP" "mkdir -p ~/nightly/compose ~/nightly/scripts"
-          scp -o StrictHostKeyChecking=no -i temp-key.pem compose/docker-compose.verify.yml ec2-user@"$TEMP_PUBLIC_IP":~/nightly/compose/
-          scp -o StrictHostKeyChecking=no -i temp-key.pem scripts/smoke-test.sh ec2-user@"$TEMP_PUBLIC_IP":~/nightly/scripts/
+          ssh ec2-user@"$EC2_IP" '
+            for i in {1..60}; do
+              if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+                echo "Docker is ready"
+                exit 0
+              fi
+              echo "Waiting for Docker..."
+              sleep 5
+            done
+            echo "Docker never became ready"
+            exit 1
+          '
 
-      - name: Run verification on temporary EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no -i temp-key.pem ec2-user@"$TEMP_PUBLIC_IP" <<EOF
-            set -e
-            cd ~/nightly
-            if [ ! -d app ]; then
-              git clone "${SOURCE_REPO_URL}" app
-            fi
+      - name: Run test containers on EC2
+        run: bash scripts/run-test-containers.sh
 
-            cat > .env <<EOT
-            RDS_HOST=${{ secrets.RDS_HOST }}
-            RDS_PORT=${{ secrets.RDS_PORT }}
-            RDS_USER=${{ secrets.RDS_USER }}
-            RDS_PASSWORD=${{ secrets.RDS_PASSWORD }}
-            RDS_DB=${{ secrets.RDS_DB }}
-            EOT
+      - name: Smoke test verification EC2
+        env:
+          EC2_IP: ${{ env.EC2_IP }}
+        run: bash scripts/smoke-test.sh
 
-            cd compose
-            docker compose --env-file ../.env -f docker-compose.verify.yml up -d --build
-
-            sleep 20
-            chmod +x ../scripts/smoke-test.sh
-            ../scripts/smoke-test.sh
-          EOF
-
-      - name: Log in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push backend image
-        run: |
-          BACKEND_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/spa-backend:${GITHUB_SHA}"
-          docker build -t "$BACKEND_IMAGE" ./app/backend
-          docker push "$BACKEND_IMAGE"
-
-      - name: Build and push frontend image
-        run: |
-          FRONTEND_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/spa-frontend:${GITHUB_SHA}"
-          docker build -t "$FRONTEND_IMAGE" ./app/frontend
-          docker push "$FRONTEND_IMAGE"
-
-      - name: Copy QA compose file to QA EC2
-        run: |
-          scp -o StrictHostKeyChecking=no -i temp-key.pem compose/docker-compose.qa.yml "${{ secrets.QA_USER }}"@"${{ secrets.QA_HOST }}":"${QA_APP_DIR}/"
+      - name: Push images to ECR
+        run: bash scripts/push-ecr.sh
 
       - name: Deploy to QA EC2
-        run: |
-          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          ECR_PASSWORD=$(aws ecr get-login-password --region "${AWS_REGION}")
-
-          ssh -o StrictHostKeyChecking=no -i temp-key.pem "${{ secrets.QA_USER }}"@"${{ secrets.QA_HOST }}" <<EOF
-            set -e
-            mkdir -p "${QA_APP_DIR}"
-
-            echo "${ECR_PASSWORD}" | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
-
-            cat > "${QA_APP_DIR}/.env" <<EOT
-            AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID}
-            AWS_REGION=${AWS_REGION}
-            IMAGE_TAG=${GITHUB_SHA}
-            RDS_HOST=${{ secrets.RDS_HOST }}
-            RDS_PORT=${{ secrets.RDS_PORT }}
-            RDS_USER=${{ secrets.RDS_USER }}
-            RDS_PASSWORD=${{ secrets.RDS_PASSWORD }}
-            RDS_DB=${{ secrets.RDS_DB }}
-            EOT
-
-            cd "${QA_APP_DIR}"
-            docker compose --env-file .env -f docker-compose.qa.yml pull
-            docker compose --env-file .env -f docker-compose.qa.yml up -d
-          EOF
+        run: bash scripts/deploy-qa.sh
 
       - name: Terminate temporary EC2
         if: always()

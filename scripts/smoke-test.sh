@@ -1,21 +1,46 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "Checking frontend..."
-curl -f http://localhost:3001 > /dev/null
+MAX_ATTEMPTS=40
+SLEEP_SECONDS=5
+
+wait_for_url() {
+  local url="$1"
+  local label="$2"
+
+  echo "Waiting for $label at $url ..."
+  for i in $(seq 1 "$MAX_ATTEMPTS"); do
+    STATUS=$(curl --max-time 5 -s -o /dev/null -w "%{http_code}" "$url" || true)
+    echo "Attempt $i/$MAX_ATTEMPTS -> HTTP $STATUS"
+    if [ "$STATUS" = "200" ] || [ "$STATUS" = "304" ]; then
+      echo "$label is ready"
+      return 0
+    fi
+    sleep "$SLEEP_SECONDS"
+  done
+
+  echo "$label never became ready"
+  return 1
+}
+
+wait_for_url "http://$EC2_IP:3001" "frontend"
+wait_for_url "http://$EC2_IP:3000/user" "backend"
 
 echo "Initializing database..."
-curl -f -X POST http://localhost:3000/dbinit > /dev/null
+curl -f -X POST "http://$EC2_IP:3000/dbinit"
 
 echo "Initializing table..."
-curl -f -X POST http://localhost:3000/tbinit > /dev/null
+curl -f -X POST "http://$EC2_IP:3000/tbinit"
 
-echo "Inserting a test row..."
-curl -f -X POST http://localhost:3000/user \
+echo "Inserting test row..."
+curl -f -X POST "http://$EC2_IP:3000/user" \
   -H "Content-Type: application/json" \
-  -d '{"data":"nightly-test"}' > /dev/null
+  -d '{"data":"nightly-test"}'
 
 echo "Reading rows back..."
-curl -f http://localhost:3000/user | grep nightly-test
+RESPONSE=$(curl -f "http://$EC2_IP:3000/user")
+echo "$RESPONSE"
 
-echo "Smoke tests passed."
+echo "$RESPONSE" | grep "nightly-test"
+
+echo "Smoke test passed."
