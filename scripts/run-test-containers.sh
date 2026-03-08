@@ -6,13 +6,6 @@ echo "Running containers on EC2..."
 REMOTE_USER="ec2-user"
 REMOTE_HOST="$EC2_IP"
 
-echo "Check Docker first..."
-ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" '
-  which docker || true
-  sudo docker --version || true
-  sudo systemctl status docker --no-pager || true
-'
-
 echo "Transfer backend image..."
 docker save spa-backend | ssh -o StrictHostKeyChecking=no "$REMOTE_USER@$REMOTE_HOST" "sudo docker load"
 
@@ -41,5 +34,12 @@ sudo docker run -d \
   -p 3001:3000 \
   spa-frontend
 
-sudo docker ps
+echo "=== docker ps -a ==="
+sudo docker ps -a
+
+echo "=== backend logs ==="
+sudo docker logs verify-api || true
+
+echo "=== frontend logs ==="
+sudo docker logs verify-frontend || true
 EOF

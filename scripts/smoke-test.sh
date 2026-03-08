@@ -31,9 +31,13 @@ echo "Waiting for table creation to finish..."
 sleep 5
 
 echo "Inserting test row..."
-curl -f -X POST "http://$EC2_IP:3000/user" \
+if ! curl -f -X POST "http://$EC2_IP:3000/user" \
   -H "Content-Type: application/json" \
-  -d '{"data":"nightly-test"}'
+  -d '{"data":"nightly-test"}'; then
+  echo "Insert failed. Fetching backend logs..."
+  ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP "sudo docker logs verify-api | tail -100 || true"
+  exit 1
+fi
 
 echo "Reading rows back..."
 RESPONSE=$(curl -f "http://$EC2_IP:3000/user")
