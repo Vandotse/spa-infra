@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+: "${EC2_IP:?EC2_IP is empty}"
+
 MAX_ATTEMPTS=40
 SLEEP_SECONDS=5
 
@@ -40,7 +42,6 @@ curl -f -X POST "http://$EC2_IP:3000/user" \
 echo "Reading rows back..."
 RESPONSE=$(curl -f "http://$EC2_IP:3000/user")
 echo "$RESPONSE"
-
 echo "$RESPONSE" | grep "nightly-test"
 
 echo "Smoke test passed."

@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+: "${QA_EC2_IP:?QA_EC2_IP is empty}"
+: "${QA_EC2_USER:?QA_EC2_USER is empty}"
+: "${AWS_REGION:?AWS_REGION is empty}"
+: "${ECR_BACKEND_REPO:?ECR_BACKEND_REPO is empty}"
+: "${ECR_FRONTEND_REPO:?ECR_FRONTEND_REPO is empty}"
+
 echo "Deploying to QA EC2: $QA_EC2_IP"
 
 REGISTRY=$(echo "$ECR_BACKEND_REPO" | cut -d'/' -f1)
@@ -42,6 +48,4 @@ docker run -d \
 
 echo "Current containers:"
 docker ps
-
-echo "QA deployment complete."
 EOF

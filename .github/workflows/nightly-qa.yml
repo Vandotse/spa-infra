@@ -3,7 +3,7 @@ name: Nightly QA Deployment
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 9 * * *" # 1:00 AM PST / 2:00 AM PDT adjust if needed
+    - cron: "0 9 * * *"
 
 permissions:
   contents: read
@@ -15,6 +15,8 @@ env:
   ECR_FRONTEND_REPO: ${{ secrets.ECR_FRONTEND_REPO }}
   QA_EC2_IP: ${{ secrets.QA_EC2_IP }}
   QA_EC2_USER: ${{ secrets.QA_EC2_USER }}
+  CONTROL_EC2_IP: ${{ secrets.CONTROL_EC2_IP }}
+  CONTROL_EC2_USER: ${{ secrets.CONTROL_EC2_USER }}
   RDS_HOST: ${{ secrets.RDS_HOST }}
   RDS_PORT: ${{ secrets.RDS_PORT }}
   RDS_USER: ${{ secrets.RDS_USER }}
@@ -35,7 +37,7 @@ jobs:
       - name: Clone source repo
         run: git clone "${SOURCE_REPO_URL}" app
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials for ECR actions
         uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -46,7 +48,7 @@ jobs:
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          printf "%s" "${{ secrets.EC2_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           cat > ~/.ssh/config <<'EOF'
           Host *
@@ -59,17 +61,17 @@ jobs:
       - name: Build Docker images
         run: bash scripts/build-image.sh
 
-      - name: Launch temporary EC2
+      - name: Launch temporary EC2 via LabRole control EC2
         env:
           AMI_ID: ${{ secrets.AMI_ID }}
-          EC2_SECURITY_GROUP: ${{ secrets.TEMP_SG_ID }}
-          EC2_SUBNET: ${{ secrets.TEMP_SUBNET_ID }}
-          EC2_KEY_NAME: ${{ secrets.TEMP_KEY_NAME }}
+          EC2_SECURITY_GROUP: ${{ secrets.SECURITY_GROUP_ID }}
+          EC2_SUBNET: ${{ secrets.SUBNET_ID }}
+          EC2_KEY_NAME: ${{ secrets.EC2_KEY_NAME }}
         run: bash scripts/create-ec2.sh
 
-      - name: Wait for EC2 SSH
+      - name: Wait for temporary EC2 SSH
         run: |
-          echo "Waiting for EC2 SSH on $EC2_IP ..."
+          echo "Waiting for verifier SSH on $EC2_IP ..."
           for i in {1..60}; do
             if ssh -o BatchMode=yes -o ConnectTimeout=5 ec2-user@"$EC2_IP" "echo connected" >/dev/null 2>&1; then
               echo "SSH ready"
@@ -78,10 +80,10 @@ jobs:
             echo "Attempt $i/60: SSH not ready yet"
             sleep 5
           done
-          echo "EC2 never became reachable by SSH"
+          echo "Verifier EC2 never became reachable by SSH"
           exit 1
 
-      - name: Wait for Docker on EC2
+      - name: Wait for Docker on verifier EC2
         run: |
           ssh ec2-user@"$EC2_IP" '
             for i in {1..60}; do
@@ -96,10 +98,10 @@ jobs:
             exit 1
           '
 
-      - name: Run test containers on EC2
+      - name: Run test containers on verifier EC2
         run: bash scripts/run-test-containers.sh
 
-      - name: Smoke test verification EC2
+      - name: Smoke test verifier EC2
         env:
           EC2_IP: ${{ env.EC2_IP }}
         run: bash scripts/smoke-test.sh
@@ -110,9 +112,6 @@ jobs:
       - name: Deploy to QA EC2
         run: bash scripts/deploy-qa.sh
 
-      - name: Terminate temporary EC2
+      - name: Terminate temporary EC2 via LabRole control EC2
         if: always()
-        run: |
-          if [ -n "${INSTANCE_ID:-}" ]; then
-            aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
-          fi
+        run: bash scripts/destroy-ec2.sh

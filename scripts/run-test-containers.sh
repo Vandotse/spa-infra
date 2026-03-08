@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "Running verification containers on EC2..."
+: "${EC2_IP:?EC2_IP is empty}"
+
+echo "Running verification containers on verifier EC2..."
 
 REMOTE_USER="ec2-user"
 REMOTE_HOST="$EC2_IP"
@@ -18,7 +20,7 @@ docker save spa-frontend:latest | ssh "$REMOTE_USER@$REMOTE_HOST" "sudo docker l
 echo "Copying verification compose file..."
 scp compose/docker-compose.verify.yml "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/docker-compose.verify.yml"
 
-echo "Creating .env on verification EC2..."
+echo "Creating .env on verifier EC2..."
 ssh "$REMOTE_USER@$REMOTE_HOST" <<EOF
 cat > $REMOTE_DIR/.env <<EOT
 RDS_HOST=$RDS_HOST
@@ -31,8 +33,8 @@ EOF
 
 echo "Starting verification stack..."
 ssh "$REMOTE_USER@$REMOTE_HOST" <<EOF
+set -e
 cd $REMOTE_DIR
 sudo docker compose --env-file .env -f docker-compose.verify.yml up -d
 sudo docker compose -f docker-compose.verify.yml ps
-sudo docker images | grep -E 'spa-backend|spa-frontend'
 EOF
