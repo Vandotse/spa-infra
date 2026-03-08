@@ -40,8 +40,6 @@ jobs:
         with:
           repository: Vandotse/docker-mysql-nodejs-reactjs-app
           path: source
-          # Remove the next line if the source repo is public
-          token: ${{ secrets.SOURCE_REPO_PAT }}
 
       - name: Login to ECR
         run: |
