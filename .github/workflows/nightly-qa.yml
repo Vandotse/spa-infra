@@ -17,3 +17,98 @@ env:
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
   DB_NAME: ${{ secrets.DB_NAME }}
 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Clone application repo
+        run: |
+          git clone https://github.com/Vandotse/docker-mysql-nodejs-reactjs-app.git spa-app
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Build Docker images
+        run: |
+          bash scripts/build-image.sh
+
+      - name: Launch temporary EC2
+        env:
+          AMI_ID: ${{ secrets.AMI_ID }}
+        run: |
+          bash scripts/create-ec2.sh
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_PRIVATE_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keygen -lf ~/.ssh/id_rsa
+
+          cat <<EOF > ~/.ssh/config
+          Host *
+            IdentityFile ~/.ssh/id_rsa
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            LogLevel ERROR
+          EOF
+
+      - name: Wait for EC2 SSH
+        run: |
+          echo "Waiting for EC2 SSH..."
+          for i in {1..60}; do
+            if ssh \
+              -o BatchMode=yes \
+              -o ConnectTimeout=3 \
+              ec2-user@$EC2_IP "echo connected" >/dev/null 2>&1; then
+              echo "EC2 is ready"
+              exit 0
+            fi
+
+            echo "Attempt $i: not ready yet"
+            sleep 5
+          done
+
+          echo "EC2 never became reachable"
+          exit 1
+
+      - name: Run containers on EC2
+        run: |
+          bash scripts/run-test-containers.sh
+
+      - name: Smoke test
+        env:
+          EC2_IP: ${{ env.EC2_IP }}
+        run: |
+          bash scripts/smoke-test.sh
+
+      - name: Push images to ECR
+        run: |
+          bash scripts/push-ecr.sh
+
+      - name: Deploy to QA EC2
+        env:
+          QA_EC2_IP: ${{ secrets.QA_EC2_IP }}
+          QA_EC2_USER: ${{ secrets.QA_EC2_USER }}
+          ECR_REPO: ${{ secrets.ECR_REPO }}
+        run: |
+          bash scripts/deploy-qa.sh
+
+      - name: Terminate temporary EC2
+        if: always()
+        run: |
+          if [ -n "${INSTANCE_ID:-}" ]; then
+            bash scripts/destroy-ec2.sh
+          fi
